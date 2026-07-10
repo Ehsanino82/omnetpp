@@ -57,6 +57,7 @@
 /doc/src/manual/usman.log
 /doc/src/python-api/_autosummary
 /ide
+/.idea
 /include/omnetpp/platdep/config.h
 /include/sysc
 /include/systemc
