@@ -23,15 +23,19 @@ public:
     }
 
     int act(const std::vector<double>& rawState) const {
+        return actMasked(rawState, std::vector<int>{});
+    }
+
+    // Return raw Q-values for a state. NOTE: the network is trained on RAW
+    // (un-normalized) states in train_dqn.py, so inference must also use raw
+    // states — the exported scaler.csv is not applied here (kept only for
+    // compatibility / inspection). Applying it would feed the network inputs
+    // it never saw during training and produce garbage Q-values.
+    std::vector<double> qValues(const std::vector<double>& rawState) const {
         if (!loaded)
             throw std::runtime_error("DqnPolicy: weights not loaded");
 
-        // Normalize
-        std::vector<double> x(rawState.size());
-        for (size_t i = 0; i < rawState.size(); i++) {
-            double s = (statStd.size() > i && statStd[i] > 1e-8) ? statStd[i] : 1.0;
-            x[i] = (rawState[i] - statMean[i]) / s;
-        }
+        const std::vector<double> &x = rawState;
 
         // Layer 1: ReLU(W1 * x + b1)
         std::vector<double> h1(rows1);
@@ -46,9 +50,27 @@ public:
         // Layer 3: W3 * h2 + b3 (Q-values)
         std::vector<double> q(rows3);
         matvec(W3, rows3, cols3, h2, b3, q);
+        return q;
+    }
 
-        // Argmax
-        return (int)(std::max_element(q.begin(), q.end()) - q.begin());
+    // Argmax over Q-values restricted to `allowed` actions. If `allowed` is
+    // empty, all actions are allowed. Used to mask out infeasible actions
+    // (e.g. sending a non-quantum task to a QPU — Quantom.md phase 4).
+    int actMasked(const std::vector<double>& rawState,
+                  const std::vector<int>& allowed) const {
+        std::vector<double> q = qValues(rawState);
+        if (allowed.empty()) {
+            return (int)(std::max_element(q.begin(), q.end()) - q.begin());
+        }
+        int best = allowed[0];
+        double bestQ = q[best];
+        for (int a : allowed) {
+            if (q[a] > bestQ) {
+                bestQ = q[a];
+                best = a;
+            }
+        }
+        return best;
     }
 
     bool isLoaded() const { return loaded; }
