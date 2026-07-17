@@ -14,12 +14,18 @@ simple IoTDevice
         string decisionMode = default("roundRobin");  // local | random | roundRobin | greedy | dqn
         string modelDir = default("");                 // path to exported DQN weights
 
-        // Local IoT execution model (energy = power * execTime)
-        double localThroughput = default(300);          // MFLOP/s (slow IoT CPU)
-        double localPower = default(2.0);               // Watts (active)
+        // Local IoT execution model — Raspberry Pi 4B (hospital/edge domain).
+        //   SoC: Broadcom BCM2711, quad-core Cortex-A72 @ 1.5 GHz.
+        //   Peak FP32 (NEON, 4 cores) ~ 12 GFLOP/s; derated to an EFFECTIVE
+        //   sustained-available throughput of 600 MFLOP/s under the device's
+        //   OS + sensing stack and battery power constraint. Active power ~5 W.
+        //   Energy = power * execTime,  execTime = workload / localThroughput.
+        double localThroughput = default(600);          // MFLOP/s (Pi 4B effective sustained)
+        double localPower = default(5.0);               // Watts (Pi 4B active CPU)
         double txPower = default(1.5);                  // 5G uplink transmit power (W)
         double uplinkRate = default(100e6);             // 5G uplink data rate (bps)
         double linkDelay @unit(s) = default(0.005s);    // fallback one-way delay
+        double qpuTheta = default(0.7);                 // quantum-suitability threshold (local-feasibility)
 
         @signal[msgSent](type=long);
         @signal[e2eDelay](type=double);
@@ -53,12 +59,16 @@ simple FogServer
 
         @signal[msgReceived](type=long);
         @signal[respTime](type=simtime_t);
+        @signal[queueWait](type=double);
+        @signal[serverTurnaround](type=double);
         @signal[queueBacklog](type=double);
         @signal[execTime](type=double);
         @signal[energy](type=double);
         @signal[fogUtilization](type=double);
         @statistic[msgReceived](title="messages received"; record=count,vector);
-        @statistic[respTime](title="processing time"; record=mean,max,vector);
+        @statistic[respTime](title="response time net+queue+exec"; record=mean,max,vector);
+        @statistic[queueWait](title="queue waiting time (s)"; record=mean,max,vector);
+        @statistic[serverTurnaround](title="server turnaround = queue+exec (s)"; record=mean,max,vector);
         @statistic[queueBacklog](title="queue backlog (s)"; record=mean,max,vector);
         @statistic[execTime](title="execution time"; record=mean,max,vector);
         @statistic[energy](title="fog exec energy"; record=mean,sum,vector);

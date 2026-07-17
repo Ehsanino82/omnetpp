@@ -27,6 +27,8 @@ class FogServer : public cSimpleModule
 
     simsignal_t msgReceivedSignal;
     simsignal_t respTimeSignal;
+    simsignal_t queueWaitSignal;
+    simsignal_t serverTurnaroundSignal;
     simsignal_t queueLenSignal;
     simsignal_t execTimeSignal;
     simsignal_t energySignal;
@@ -67,6 +69,8 @@ void FogServer::initialize()
 
     msgReceivedSignal      = registerSignal("msgReceived");
     respTimeSignal         = registerSignal("respTime");
+    queueWaitSignal        = registerSignal("queueWait");
+    serverTurnaroundSignal = registerSignal("serverTurnaround");
     queueLenSignal         = registerSignal("queueBacklog");
     execTimeSignal         = registerSignal("execTime");
     energySignal           = registerSignal("energy");
@@ -106,7 +110,11 @@ void FogServer::handleMessage(cMessage *msg)
     double procTime = computeExecTime(spec, workload, qs, dataBytes);
     double execEnergy = computeEnergy(procTime);
 
-    // FIFO single-server queue model
+    // FIFO single-server queue model. The task arrives at the fog at simTime()
+    // (= releaseTime + netDelay). Its time ON THE SERVER (turnaround) is the
+    // queue waiting time + execution time (excludes the 5G network delay, which
+    // is accounted for separately in the IoT device's end-to-end delay).
+    simtime_t arrivalAtServer = simTime();
     simtime_t start  = std::max(simTime(), nextFreeTime);
     simtime_t finish = start + procTime;
     nextFreeTime = finish;
@@ -114,15 +122,23 @@ void FogServer::handleMessage(cMessage *msg)
     totalBusyTime += procTime;
     tasksProcessed++;
 
+    double queueWait = (start - arrivalAtServer).dbl();
+    double serverTurnaround = (finish - arrivalAtServer).dbl();  // queueWait + procTime
+
     simtime_t responseTime = finish - t->getTimestamp();
     emit(respTimeSignal, responseTime);
+    emit(queueWaitSignal, queueWait);
+    emit(serverTurnaroundSignal, serverTurnaround);
     emit(execTimeSignal, procTime);
     emit(energySignal, execEnergy);
     emit(queueLenSignal, std::max(0.0, (nextFreeTime - simTime()).dbl()));
 
     EV << getName() << " [" << procName << "/" << procTypeName() << "] task "
        << t->getTaskId() << " W=" << workload << " Qs=" << qs
-       << " exec=" << procTime * 1000.0 << "ms E=" << execEnergy << "J\n";
+       << " exec=" << procTime * 1000.0 << "ms"
+       << " queue=" << queueWait * 1000.0 << "ms"
+       << " turnaround=" << serverTurnaround * 1000.0 << "ms"
+       << " E=" << execEnergy << "J\n";
 
     // Send the task back as a completion ack once processing finishes,
     // carrying the finish time + exec/energy so the IoT device can compute

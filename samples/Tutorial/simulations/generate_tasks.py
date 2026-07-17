@@ -33,11 +33,14 @@ NUM_DEVICES = 15
 SIM_WINDOW_S = 95.0          # spread arrivals over ~95 s (sim-time-limit = 100 s)
 
 # --- IoT local-execution model (must match omnetpp.ini) -----------------------
-# E_local = P_local * T_local,  T_local = workload / P_LOCAL_THROUGHPUT.
-# (Dynamic-power model: energy = power x execution time, consistent with the
-# heterogeneous fog energy model in ProcessorModel.h / FogServer.cc.)
-P_LOCAL_THROUGHPUT = 300.0   # MFLOP/s (slow IoT CPU)
-P_LOCAL_POWER = 2.0          # Watts (active)
+# IoT device = Raspberry Pi 4B (BCM2711, quad Cortex-A72 @ 1.5 GHz), the kind of
+# low-power edge node common in hospital/health IoT deployments. Peak FP32
+# (NEON, 4 cores) ~ 12 GFLOP/s, derated to an EFFECTIVE sustained-available
+# throughput of 600 MFLOP/s under the OS + sensing stack and battery power
+# constraint. Active CPU power ~ 5 W.
+#   E_local = P_local * T_local,  T_local = workload / P_LOCAL_THROUGHPUT
+P_LOCAL_THROUGHPUT = 600.0   # MFLOP/s (Pi 4B effective sustained)
+P_LOCAL_POWER = 5.0          # Watts (Pi 4B active CPU)
 P_LOCAL_TX  = 1.5            # 5G uplink transmit power (W)
 R_UPLINK    = 100e6          # 5G uplink data rate (bps) -> used for tx energy
 

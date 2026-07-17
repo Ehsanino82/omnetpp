@@ -14,6 +14,7 @@ struct TaskConfig {
     int taskId, ownerDeviceId, sizeBytes, priority;
     double arrivalTime, workload, quantumSuitability, deadline;
     double dataSizeKb, energyLocalEst;
+    std::string taskType;
 };
 
 class IoTDevice : public cSimpleModule
@@ -49,6 +50,7 @@ class IoTDevice : public cSimpleModule
     double txPower;                         // 5G uplink transmit power (W)
     double uplinkRate;                      // 5G uplink data rate (bps)
     double linkDelayFallback;               // if channel delay not readable
+    double qpuTheta;                        // quantum-suitability threshold
     simtime_t localNextFreeTime = SIMTIME_ZERO;
 
     // Statistics
@@ -68,6 +70,10 @@ class IoTDevice : public cSimpleModule
     double localExecTime(const TaskConfig &tc) const;
     double localEnergy(const TaskConfig &tc) const;
     double txEnergy(const TaskConfig &tc) const;
+    bool isQuantumTask(const TaskConfig &tc) const;
+    bool isGpuTaskType(const std::string &t) const;
+    bool localAllowed(const TaskConfig &tc) const;   // GPU/quantum tasks must offload
+    int pickBestFog(const TaskConfig &tc) const;      // greedy argmin fog index
     void processLocally(const TaskConfig &tc);
     void recordCompletion(double e2eDelay, bool deadlineMet, double energy);
     virtual void finish() override;
@@ -86,6 +92,7 @@ void IoTDevice::initialize()
     txPower        = par("txPower").doubleValue();
     uplinkRate     = par("uplinkRate").doubleValue();
     linkDelayFallback = par("linkDelay").doubleValue();
+    qpuTheta       = par("qpuTheta").doubleValue();
 
     msgSentSignal     = registerSignal("msgSent");
     e2eDelaySignal    = registerSignal("e2eDelay");
@@ -165,7 +172,7 @@ void IoTDevice::loadTasks(const char *filename)
         std::getline(ss, cell, ','); tc.taskId             = std::stoi(cell);
         std::getline(ss, cell, ','); tc.ownerDeviceId      = std::stoi(cell);
         std::getline(ss, cell, ','); tc.arrivalTime        = std::stod(cell);
-        std::getline(ss, cell, ',');                    /* taskType (unused) */
+        std::getline(ss, cell, ','); tc.taskType           = cell;   // task type (local-feasibility rule)
         std::getline(ss, cell, ','); tc.dataSizeKb        = std::stod(cell);
         std::getline(ss, cell, ','); tc.workload          = std::stod(cell);
         std::getline(ss, cell, ','); tc.quantumSuitability= std::stod(cell);
@@ -209,6 +216,51 @@ double IoTDevice::estimateFogExec(int j, const TaskConfig &tc) const
 {
     double dataBytes = (double)tc.sizeBytes;
     return computeExecTime(fogSpecs[j], tc.workload, tc.quantumSuitability, dataBytes);
+}
+
+// Task classification for the local-feasibility rule (teacher feedback):
+//   - Quantum task   (Qs >= qpuTheta)               -> MUST offload (QPU/GPU)
+//   - GPU-oriented task (image/cnn/video)           -> MUST offload (GPU)
+//   - CPU/control task (sensor/control/aggr/alert)  -> may run locally
+// Rationale: the battery-powered IoT device is too weak/slow for heavy GPU or
+// quantum-optimizable work; running those locally would blow deadlines and drain
+// the battery. Only light CPU/control tasks are local-feasible.
+bool IoTDevice::isQuantumTask(const TaskConfig &tc) const
+{
+    return tc.quantumSuitability >= qpuTheta;
+}
+
+bool IoTDevice::isGpuTaskType(const std::string &t) const
+{
+    return t == "image_processing" || t == "cnn_inference" || t == "video_processing";
+}
+
+bool IoTDevice::localAllowed(const TaskConfig &tc) const
+{
+    if (isQuantumTask(tc))  return false;
+    if (isGpuTaskType(tc.taskType)) return false;
+    return true;            // CPU / control / sensor task -> local is feasible
+}
+
+// Greedy completion-time fog pick (network + queue + exec), restricted to fogs
+// that are suitable for the task (non-quantum tasks skip QPU fogs). Used to
+// force-offload GPU/quantum tasks that may not run locally.
+int IoTDevice::pickBestFog(const TaskConfig &tc) const
+{
+    int best = -1;
+    double bestCost = 1e18;
+    for (int j = 0; j < numFogServers; j++) {
+        bool isQpu = (fogSpecs[j].type == PROC_QPU);
+        if (isQpu && tc.quantumSuitability < fogSpecs[j].qpuTheta)
+            continue;                       // non-quantum task -> skip QPU
+        double cost = fogLinkDelay[j] + fogLoads[j] + estimateFogExec(j, tc);
+        if (cost < bestCost) {
+            bestCost = cost;
+            best = j;
+        }
+    }
+    if (best < 0) best = 0;                 // fallback (should not happen)
+    return best;
 }
 
 void IoTDevice::handleMessage(cMessage *msg)
@@ -257,16 +309,30 @@ void IoTDevice::handleMessage(cMessage *msg)
 
 int IoTDevice::chooseAction(const TaskConfig &tc)
 {
+    // ---- Local-feasibility rule (teacher feedback) -------------------------
+    // GPU-oriented and quantum-optimizable tasks MUST be offloaded (the IoT
+    // device is too weak / battery-bound to run them). Only CPU/control tasks
+    // may be processed locally. This is enforced for EVERY policy below by
+    // removing action 0 (local) from the feasible set when !localAllowed(tc).
+    const bool canLocal = localAllowed(tc);
+
     if (decisionMode == "local") {
-        return 0;
+        // Local-preferred baseline: run CPU tasks locally; GPU/quantum tasks
+        // cannot run locally, so offload them to the best (greedy) fog.
+        if (canLocal) return 0;
+        return pickBestFog(tc) + 1;
     }
 
     if (decisionMode == "random") {
-        return intuniform(0, numFogServers);   // 0=local, 1..numFog
+        // Uniform random over the feasible set: local (if allowed) + all fogs.
+        std::vector<int> pool;
+        if (canLocal) pool.push_back(0);
+        for (int j = 0; j < numFogServers; j++) pool.push_back(j + 1);
+        return pool[intuniform(0, (int)pool.size() - 1)];
     }
 
     // RoundRobin: dumb baseline — always offload, cycle through fog servers
-    // (no execution-time / queue awareness, per teacher note).
+    // (no execution-time / queue awareness, per teacher note). Never uses local.
     if (decisionMode == "roundRobin") {
         int chosen = nextServer + 1;
         nextServer = (nextServer + 1) % numFogServers;
@@ -277,16 +343,25 @@ int IoTDevice::chooseAction(const TaskConfig &tc)
     // phase 8-9): C = network_delay + queue_backlog + execution_time, pick min.
     if (decisionMode == "greedy") {
         std::vector<double> costs;
-        costs.push_back(std::max(0.0, (localNextFreeTime - simTime()).dbl())
-                        + localExecTime(tc));                          // action 0
-        for (int j = 0; j < numFogServers; j++)
+        std::vector<int> actions;
+        if (canLocal) {
+            costs.push_back(std::max(0.0, (localNextFreeTime - simTime()).dbl())
+                            + localExecTime(tc));                       // action 0
+            actions.push_back(0);
+        }
+        for (int j = 0; j < numFogServers; j++) {
+            bool isQpu = (fogSpecs[j].type == PROC_QPU);
+            if (isQpu && tc.quantumSuitability < fogSpecs[j].qpuTheta)
+                continue;                       // non-quantum task -> skip QPU
             costs.push_back(fogLinkDelay[j] + fogLoads[j] + estimateFogExec(j, tc));
+            actions.push_back(j + 1);
+        }
 
         double bestCost = *std::min_element(costs.begin(), costs.end());
         std::vector<int> candidates;
         for (int a = 0; a < (int)costs.size(); a++)
             if (costs[a] <= bestCost + 1e-9)
-                candidates.push_back(a);
+                candidates.push_back(actions[a]);
         return candidates[intuniform(0, (int)candidates.size() - 1)];
     }
 
@@ -301,11 +376,11 @@ int IoTDevice::chooseAction(const TaskConfig &tc)
         for (int j = 0; j < numFogServers; j++) state.push_back(fogLoads[j]);
         for (int j = 0; j < numFogServers; j++) state.push_back(estimateFogExec(j, tc));
 
-        // Quantum-suitability mask (Quantom.md phase 4): a task with Qs below
-        // theta must NOT be sent to a QPU fog. Restrict the action set so the
-        // DQN only argmaxes over feasible placements.
+        // Action mask (Quantom.md phase 4 + local-feasibility rule):
+        //   - local (0) only for CPU/control tasks
+        //   - QPU fogs only for quantum-suitable tasks
         std::vector<int> allowed;
-        allowed.push_back(0);                      // local always allowed
+        if (canLocal) allowed.push_back(0);
         for (int j = 0; j < numFogServers; j++) {
             bool isQpu = (fogSpecs[j].type == PROC_QPU);
             if (isQpu && tc.quantumSuitability < fogSpecs[j].qpuTheta)

@@ -78,9 +78,11 @@ FOG_SPECS = [
     {"type": PROC_CPU, "throughput": 1000,   "power": 65},                              # CPU-11core
 ]
 
-# IoT local model — MUST match omnetpp.ini
-LOCAL_THROUGHPUT = 300.0      # MFLOP/s
-LOCAL_POWER = 2.0             # W
+# IoT local model — Raspberry Pi 4B (MUST match omnetpp.ini)
+#   BCM2711 quad Cortex-A72 @1.5GHz; peak FP32 ~12 GFLOP/s, derated to 600
+#   MFLOP/s effective sustained-available under OS/sensing load + battery.
+LOCAL_THROUGHPUT = 600.0      # MFLOP/s (Pi 4B effective sustained)
+LOCAL_POWER = 5.0             # W (Pi 4B active CPU)
 TX_POWER = 1.5                # W
 UPLINK_RATE = 100e6           # bps
 
@@ -104,6 +106,20 @@ TYPE_WEIGHTS = [0.10, 0.08, 0.08, 0.07, 0.07,
                 0.12, 0.10, 0.08,
                 0.10, 0.08, 0.07, 0.05]
 
+# GPU-oriented task types (low Q_s, heavy parallel work) — must be offloaded.
+GPU_TASK_TYPES = {"image_processing", "cnn_inference", "video_processing"}
+
+
+def is_local_allowed(ttype, qs, theta=QPU_THETA):
+    """Local-feasibility rule (mirrors IoTDevice.cc): only CPU/control tasks may
+    run locally; GPU-oriented and quantum-optimizable (Qs>=theta) tasks must be
+    offloaded (the battery IoT device is too weak for them)."""
+    if qs >= theta:
+        return False
+    if ttype in GPU_TASK_TYPES:
+        return False
+    return True
+
 
 def gen_task(rng):
     ttype = rng.choice(TYPE_NAMES, p=TYPE_WEIGHTS)
@@ -112,7 +128,7 @@ def gen_task(rng):
     workload = float(rng.uniform(*wrange))
     slack = float(rng.uniform(*srange)) / 1000.0          # -> seconds
     data_kb = float(rng.uniform(10.0, 500.0))
-    return workload, qs, slack, data_kb
+    return workload, qs, slack, data_kb, ttype
 
 
 def tx_energy(data_kb):
@@ -142,7 +158,7 @@ class FogOffloadEnv:
         return self._get_obs()
 
     def _gen_task(self):
-        self.workload, self.qs, self.deadline_slack, self.data_kb = gen_task(self.rng)
+        self.workload, self.qs, self.deadline_slack, self.data_kb, self.ttype = gen_task(self.rng)
         self.data_bytes = self.data_kb * 1024.0
         # 5G network delay per fog, random 1-10 ms (teacher feedback)
         self.net_delays = self.rng.uniform(0.001, 0.010, size=NUM_FOG)
@@ -151,9 +167,13 @@ class FogOffloadEnv:
         return compute_exec_time(FOG_SPECS[j], self.workload, self.qs, self.data_bytes)
 
     def allowed_actions(self):
-        """Quantum-suitability mask (Quantom.md phase 4): a non-quantum task
-        (Qs < theta) must not be sent to a QPU. Returns the feasible action set."""
-        allowed = [0]  # local always allowed
+        """Action mask (Quantom.md phase 4 + local-feasibility rule):
+          - local (0) only for CPU/control tasks (GPU/quantum must offload)
+          - QPU fogs only for quantum-suitable tasks (Qs >= theta)
+        Returns the feasible action set."""
+        allowed = []
+        if is_local_allowed(self.ttype, self.qs):
+            allowed.append(0)           # local only for CPU/control tasks
         for j in range(NUM_FOG):
             is_qpu = (FOG_SPECS[j]["type"] == PROC_QPU)
             if is_qpu and self.qs < QPU_THETA:
@@ -505,19 +525,42 @@ def evaluate_baselines(trained_policy=None, episodes=30):
 
     rr = [0]
 
-    def local_fn(s): return 0
-    def random_fn(s): return random.randint(0, NUM_ACTIONS - 1)
-    def rr_fn(s):
-        rr[0] = (rr[0] % NUM_FOG) + 1
-        return rr[0]
-    def greedy_fn(s):
-        # s = [W, Qs, slack, net(5), backlog(5), exec(5)]
+    def _fog_costs(s):
+        # s = [W, Qs, slack, net(5), backlog(5), exec(5)] -> per-fog completion cost
         backlog = s[3 + NUM_FOG: 3 + 2 * NUM_FOG]
         net = s[3: 3 + NUM_FOG]
         execs = s[3 + 2 * NUM_FOG:]
-        costs = list(net + backlog + execs)
-        costs.insert(0, max(0.0, 0.0) + s[0] / LOCAL_THROUGHPUT)  # local
-        return int(np.argmin(costs))
+        return list(net + backlog + execs)
+
+    def _greedy_fog(s, env):
+        costs = _fog_costs(s)
+        fogs = [a - 1 for a in env.allowed_actions() if a > 0]
+        best_j = min(fogs, key=lambda j: costs[j])
+        return best_j + 1
+
+    def local_fn(s, env):
+        # Local-preferred: CPU/control tasks run locally; GPU/quantum tasks must
+        # offload (battery IoT device too weak) -> greedy fog pick.
+        if is_local_allowed(env.ttype, env.qs):
+            return 0
+        return _greedy_fog(s, env)
+
+    def random_fn(s, env):
+        return random.choice(env.allowed_actions())
+
+    def rr_fn(s, env):
+        rr[0] = (rr[0] % NUM_FOG) + 1
+        return rr[0]
+
+    def greedy_fn(s, env):
+        allowed = env.allowed_actions()
+        costs = _fog_costs(s)
+        best_a, best_c = allowed[0], 1e18
+        for a in allowed:
+            c = (max(0.0, env.local_free_at - env.now) + s[0] / LOCAL_THROUGHPUT) if a == 0 else costs[a - 1]
+            if c < best_c:
+                best_c, best_a = c, a
+        return best_a
 
     baselines = [
         ("Local", local_fn),
@@ -532,7 +575,7 @@ def evaluate_baselines(trained_policy=None, episodes=30):
             s = env.reset()
             done = False
             while not done:
-                s, _, done, _ = env.step(fn(s))
+                s, _, done, _ = env.step(fn(s, env))
             m = env.metrics()
             hits.append(m["hit_ratio"]); delays.append(m["avg_delay"])
             energies.append(m["avg_energy"]); loc.append(m["local_ratio"])

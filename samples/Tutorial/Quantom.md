@@ -15,14 +15,14 @@ Future computing infrastructures will integrate Quantum Processing Units (QPUs) 
 ## Contents
 
 1. Project Description — 3
-   - 1.1 Project Title — 3
-   - 1.2 Motivation — 3
+  - 1.1 Project Title — 3
+  - 1.2 Motivation — 3
 2. Objectives — 3
 3. System Architecture — 3
 4. Phase 1: Incoming Tasks — 4
 5. Phase 2: Supported Task Types — 5
-   - 5.1 Quantum-Optimizable Tasks — 5
-   - 5.2 GPU-Oriented Tasks — 5
+  - 5.1 Quantum-Optimizable Tasks — 5
+  - 5.2 GPU-Oriented Tasks — 5
 6. Phase 3: Feature Extraction — 6
 7. Phase 4: Quantum Suitability Detection — 6
 8. Phase 5: GPU Execution Time Prediction — 7
@@ -36,7 +36,11 @@ Future computing infrastructures will integrate Quantum Processing Units (QPUs) 
 
 ---
 
+
+
 ## 1 Project Description
+
+
 
 ### 1.1 Project Title
 
@@ -52,6 +56,8 @@ This project proposes an intelligent scheduler that automatically determines whe
 
 ---
 
+
+
 ## 2 Objectives
 
 The proposed scheduler has four primary objectives:
@@ -62,6 +68,8 @@ The proposed scheduler has four primary objectives:
 4. Offload the task to the processor expected to complete it earliest.
 
 ---
+
+
 
 ## 3 System Architecture
 
@@ -103,6 +111,8 @@ The overall architecture of the proposed scheduler is illustrated below:
 
 ---
 
+
+
 ## 4 Phase 1: Incoming Tasks
 
 Every arriving task is represented as
@@ -122,7 +132,11 @@ Each task also contains computational metadata:
 
 ---
 
+
+
 ## 5 Phase 2: Supported Task Types
+
+
 
 ### 5.1 Quantum-Optimizable Tasks
 
@@ -130,46 +144,54 @@ These problems have known quantum algorithms or are naturally formulated for qua
 
 **Table 1: Quantum-Optimizable Tasks and Their Suitability**
 
-| Task | Quantum Algorithm | Suitability |
-|---|---|---|
-| Integer Factorization | Shor's Algorithm | Very High |
-| Unstructured Search | Grover's Algorithm | High |
-| Traveling Salesman Problem | QAOA | High |
-| Vehicle Routing Problem | QAOA | High |
-| Max-Cut | QAOA | High |
-| Graph Coloring | QAOA | High |
-| Knapsack Problem | QAOA | High |
-| SAT / Max-SAT | QAOA | High |
-| Portfolio Optimization | Quantum Annealing/QAOA | High |
-| Job-Shop Scheduling | Quantum Annealing | High |
-| Molecular Simulation | VQE | Very High |
-| Quantum Chemistry | VQE | Very High |
-| Monte Carlo Simulation | Quantum Amplitude Estimation | Medium–High |
-| Sparse Linear Systems | HHL | Medium |
-| Quantum Machine Learning Optimization | QML | Medium |
+
+| Task                                  | Quantum Algorithm            | Suitability |
+| ------------------------------------- | ---------------------------- | ----------- |
+| Integer Factorization                 | Shor's Algorithm             | Very High   |
+| Unstructured Search                   | Grover's Algorithm           | High        |
+| Traveling Salesman Problem            | QAOA                         | High        |
+| Vehicle Routing Problem               | QAOA                         | High        |
+| Max-Cut                               | QAOA                         | High        |
+| Graph Coloring                        | QAOA                         | High        |
+| Knapsack Problem                      | QAOA                         | High        |
+| SAT / Max-SAT                         | QAOA                         | High        |
+| Portfolio Optimization                | Quantum Annealing/QAOA       | High        |
+| Job-Shop Scheduling                   | Quantum Annealing            | High        |
+| Molecular Simulation                  | VQE                          | Very High   |
+| Quantum Chemistry                     | VQE                          | Very High   |
+| Monte Carlo Simulation                | Quantum Amplitude Estimation | Medium–High |
+| Sparse Linear Systems                 | HHL                          | Medium      |
+| Quantum Machine Learning Optimization | QML                          | Medium      |
+
+
+
 
 ### 5.2 GPU-Oriented Tasks
 
 **Table 2: GPU-Oriented Tasks and Their Preferred Processor**
 
-| Task | Preferred Processor |
-|---|---|
-| Image Classification | GPU |
-| Object Detection | GPU |
-| CNN Training | GPU |
-| Transformer Inference | GPU |
-| Video Processing | GPU |
-| Rendering | GPU |
-| Ray Tracing | GPU |
-| Matrix Multiplication | GPU |
-| FFT | GPU |
-| Signal Processing | GPU |
-| Image Filtering | GPU |
-| Physics Simulation | GPU |
-| Fluid Simulation | GPU |
-| Deep Learning Training | GPU |
+
+| Task                   | Preferred Processor |
+| ---------------------- | ------------------- |
+| Image Classification   | GPU                 |
+| Object Detection       | GPU                 |
+| CNN Training           | GPU                 |
+| Transformer Inference  | GPU                 |
+| Video Processing       | GPU                 |
+| Rendering              | GPU                 |
+| Ray Tracing            | GPU                 |
+| Matrix Multiplication  | GPU                 |
+| FFT                    | GPU                 |
+| Signal Processing      | GPU                 |
+| Image Filtering        | GPU                 |
+| Physics Simulation     | GPU                 |
+| Fluid Simulation       | GPU                 |
+| Deep Learning Training | GPU                 |
+
 
 ---
+
+
 
 ## 6 Phase 3: Feature Extraction
 
@@ -196,6 +218,8 @@ Example features include:
 
 ---
 
+
+
 ## 7 Phase 4: Quantum Suitability Detection
 
 The scheduler predicts a quantum suitability score
@@ -204,14 +228,16 @@ $$Q_s \in [0, 1]$$
 
 **Table 3: Example Quantum Suitability Scores**
 
-| Task | $Q_s$ |
-|---|---|
-| TSP | 0.97 |
-| Knapsack | 0.93 |
-| Max-Cut | 0.95 |
-| Molecular Simulation | 0.99 |
-| CNN Training | 0.08 |
-| Video Rendering | 0.02 |
+
+| Task                 | $Q_s$ |
+| -------------------- | ----- |
+| TSP                  | 0.97  |
+| Knapsack             | 0.93  |
+| Max-Cut              | 0.95  |
+| Molecular Simulation | 0.99  |
+| CNN Training         | 0.08  |
+| Video Rendering      | 0.02  |
+
 
 **Decision rule**
 
@@ -224,6 +250,8 @@ $$\theta = 0.7$$
 Only tasks above the threshold are considered for QPU execution.
 
 ---
+
+
 
 ## 8 Phase 5: GPU Execution Time Prediction
 
@@ -242,6 +270,8 @@ where
 - $\eta$ = GPU efficiency
 
 ---
+
+
 
 ## 9 Phase 6: QPU Execution Time Prediction
 
@@ -263,6 +293,8 @@ Circuit execution depends on
 
 ---
 
+
+
 ## 10 Phase 7: Queue Waiting Time
 
 GPU waiting time
@@ -274,6 +306,8 @@ QPU waiting time
 $$W_{QPU} = \sum_{k=1}^{n} E_k$$
 
 ---
+
+
 
 ## 11 Phase 8: Completion Time Prediction
 
@@ -287,6 +321,8 @@ $$C_{QPU} = W_{QPU} + E_{QPU}$$
 
 ---
 
+
+
 ## 12 Phase 9: Intelligent Offloading Decision
 
 The scheduler follows the algorithm below.
@@ -299,17 +335,21 @@ The scheduler follows the algorithm below.
 
 ---
 
+
+
 ## 13 Machine Learning Components
 
 Three prediction models are employed.
 
 **Table 4: Machine Learning Models for the Scheduler**
 
-| Model | Input | Output |
-|---|---|---|
-| Quantum Suitability Classifier | Task Features | $Q_s$ |
-| GPU Time Predictor | Task + GPU State | $E_{GPU}$ |
-| QPU Time Predictor | Task + QPU State | $E_{QPU}$ |
+
+| Model                          | Input            | Output    |
+| ------------------------------ | ---------------- | --------- |
+| Quantum Suitability Classifier | Task Features    | $Q_s$     |
+| GPU Time Predictor             | Task + GPU State | $E_{GPU}$ |
+| QPU Time Predictor             | Task + QPU State | $E_{QPU}$ |
+
 
 Possible machine learning algorithms include:
 
@@ -320,6 +360,8 @@ Possible machine learning algorithms include:
 - Neural Networks
 
 ---
+
+
 
 ## 14 Evaluation Metrics
 
@@ -337,36 +379,3 @@ The proposed scheduler can be evaluated using:
 
 ---
 
-## 15 Expected Contributions
-
-The proposed framework contributes:
-
-1. A task taxonomy distinguishing quantum-optimizable and GPU-oriented workloads.
-2. A quantum suitability classifier for identifying tasks that can benefit from quantum execution.
-3. Separate execution-time prediction models for GPU and QPU.
-4. A completion-time-aware offloading strategy that jointly considers execution time and queue waiting time.
-5. A hybrid heterogeneous scheduling framework for future GPU–QPU computing platforms.
-
-Unlike traditional schedulers, the proposed framework integrates task classification, execution-time prediction, and intelligent offloading into a unified decision-making architecture for heterogeneous quantum-classical computing systems.
-
----
-
-## Acknowledgments
-
-The author gratefully acknowledges the support and guidance received from the research group at Tecnun, University of Navarra, and the facilities provided through the IBM Quantum System II.
-
----
-
-## References
-
-1. IBM Quantum. (2024). IBM Quantum System II Documentation. IBM Quantum.
-
-2. Farhi, E., Goldstone, J., & Gutmann, S. (2014). A quantum approximate optimization algorithm. arXiv preprint arXiv:1411.4028.
-
-3. Grover, L. K. (1996). A fast quantum mechanical algorithm for database search. Proceedings of the 28th Annual ACM Symposium on Theory of Computing, 212–219.
-
-4. Shor, P. W. (1997). Polynomial-time algorithms for prime factorization and discrete logarithms on a quantum computer. SIAM Journal on Computing, 26(5), 1484–1509.
-
-5. Peruzzo, A., McClean, J., Shadbolt, P., et al. (2014). A variational eigenvalue solver on a photonic quantum processor. Nature Communications, 5, 4213.
-
-6. Huang, A., et al. (2021). Quantum computing for optimization: A survey. ACM Computing Surveys, 54(5), 1–35.
