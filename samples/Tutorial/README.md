@@ -182,7 +182,8 @@ over time (vector), hit ratio**, plus local/offload share and queue backlog.
 Plots in `results/plots/`: `summary_dashboard.png`, `hit_ratio.png`,
 `avg_delay.png`, `energy.png`, `fog_utilization.png`, `per_fog_utilization.png`,
 `fog_utilization_over_time_DQN.png`, `local_vs_offload.png`,
-`multi_task_comparison.png`.
+`multi_task_comparison.png`, `training_curves.png` (DQN convergence — reward,
+loss, hit%, delay over episodes; raw data in `training_history.csv`).
 
 The DQN dramatically outperforms the dumb baselines (Local/Random/RoundRobin)
 and is competitive with the formula-based Greedy policy, while factoring energy

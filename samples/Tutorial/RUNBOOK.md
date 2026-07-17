@@ -154,6 +154,7 @@ Charts written to `results/plots/`:
 | `fog_utilization_over_time_DQN.png` | Per-fog utilization over time (vector) |
 | `local_vs_offload.png` | Local vs offloaded share |
 | `multi_task_comparison.png` | Metrics vs task count (100/200/500/1000) |
+| `training_curves.png` | DQN convergence: reward, loss, hit%, delay over episodes (also `dqn_weights/training_curves.png`, raw data `training_history.csv`) |
 
 ### Step 8 (Optional): Run with GUI
 

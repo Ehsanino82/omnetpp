@@ -49,6 +49,11 @@ else
   echo "SKIP_TRAIN=1 -> reusing existing dqn_weights/"
 fi
 
+# Copy the DQN training-convergence chart + history into results/ for the report.
+mkdir -p results/plots
+[ -f dqn_weights/training_curves.png ] && cp -f dqn_weights/training_curves.png results/plots/
+[ -f dqn_weights/training_history.csv ] && cp -f dqn_weights/training_history.csv results/
+
 # --- main experiment loop ---
 for N in "${TASK_COUNTS[@]}"; do
   echo "============================================================"

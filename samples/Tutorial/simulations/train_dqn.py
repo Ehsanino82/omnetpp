@@ -21,7 +21,6 @@ import os
 import csv
 import random
 import argparse
-import math
 from collections import deque
 
 SEED = 42
@@ -352,6 +351,9 @@ def train(episodes=EPISODES, tasks_per_ep=NUM_TASKS_PER_EP):
     best_score = -1e9
     best_params = None
 
+    # Per-episode history for the convergence plot (reward, loss, hit%, delay).
+    history = {"reward": [], "loss": [], "hit": [], "delay": [], "epsilon": []}
+
     for ep in range(episodes):
         env = FogOffloadEnv(num_tasks=tasks_per_ep)
         state = env.reset()
@@ -383,14 +385,21 @@ def train(episodes=EPISODES, tasks_per_ep=NUM_TASKS_PER_EP):
             target.copy_from(policy)
 
         m = env.metrics()
+        avg_loss = float(np.mean(ep_losses)) if ep_losses else 0.0
         # Combined objective: high hit ratio, low delay
         score = m["hit_ratio"] * 100 - m["avg_delay"] * 50
         if score >= best_score:
             best_score = score
             best_params = [p.copy() for p in policy.get_params()]
 
+        # Record history (per episode) for the convergence plot.
+        history["reward"].append(ep_reward)
+        history["loss"].append(avg_loss)
+        history["hit"].append(m["hit_ratio"] * 100.0)
+        history["delay"].append(m["avg_delay"])
+        history["epsilon"].append(epsilon)
+
         if (ep + 1) % 100 == 0 or ep == 0:
-            avg_loss = np.mean(ep_losses) if ep_losses else 0
             print(f"{ep+1:<7}{m['avg_delay']:<11.4f}{m['hit_ratio']*100:<8.1f}"
                   f"{m['avg_energy']:<9.3f}{m['local_ratio']*100:<9.1f}"
                   f"{avg_loss:<12.6f}{ep_reward:<10.1f}")
@@ -398,10 +407,66 @@ def train(episodes=EPISODES, tasks_per_ep=NUM_TASKS_PER_EP):
     if best_params:
         policy.set_params(best_params)
     print(f"\nBest combined score (hit% - 50*delay): {best_score:.2f}")
-    return policy, np.array(all_states)
+    return policy, np.array(all_states), history
 
 
 # ========== Export weights to CSV ==========
+def plot_training_curves(history, output_dir="dqn_weights", window=50):
+    """Plot DQN training convergence: reward, loss, hit% and delay over
+    episodes, with a moving-average smoothing so the convergence trend is
+    visible despite per-episode noise. Saves training_curves.png + a CSV."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    eps = np.arange(1, len(history["reward"]) + 1)
+
+    def smooth(y, w=window):
+        if len(y) < w:
+            return np.array(y)
+        return np.convolve(y, np.ones(w) / w, mode="valid")
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+    fig.suptitle("DQN Training Convergence (heterogeneous CPU/GPU/QPU fog)",
+                 fontsize=14, fontweight="bold")
+
+    panels = [
+        ("reward", "Episode Reward", axes[0, 0], "#4c9be8"),
+        ("loss", "Training Loss (MSE)", axes[0, 1], "#d9534f"),
+        ("hit", "Deadline Hit Ratio (%)", axes[1, 0], "#5cb85c"),
+        ("delay", "Avg Delay per Task (s)", axes[1, 1], "#f2a541"),
+    ]
+    for key, title, ax, color in panels:
+        y = np.array(history[key])
+        ax.plot(eps, y, color=color, alpha=0.25, linewidth=0.8, label="per episode")
+        if len(y) >= window:
+            sm = smooth(y)
+            ax.plot(eps[window - 1:], sm, color=color, linewidth=2.0,
+                    label=f"moving avg (w={window})")
+        ax.set_title(title, fontsize=11, fontweight="bold")
+        ax.set_xlabel("Episode")
+        ax.set_ylabel(title.split(" (")[0])
+        ax.grid(linestyle="--", alpha=0.4)
+        ax.legend(fontsize=8)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
+    p = os.path.join(output_dir, "training_curves.png")
+    fig.savefig(p, dpi=150)
+    plt.close(fig)
+    print(f"  saved {p}")
+
+    # Also dump the raw per-episode history to CSV for the report.
+    csv_p = os.path.join(output_dir, "training_history.csv")
+    with open(csv_p, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["episode", "reward", "loss", "hit_pct", "avg_delay_s", "epsilon"])
+        for i in range(len(history["reward"])):
+            w.writerow([i + 1, f"{history['reward'][i]:.4f}", f"{history['loss'][i]:.8f}",
+                        f"{history['hit'][i]:.4f}", f"{history['delay'][i]:.6f}",
+                        f"{history['epsilon'][i]:.6f}"])
+    print(f"  saved {csv_p}")
+
+
 def export_weights(policy, all_states, output_dir="dqn_weights"):
     os.makedirs(output_dir, exist_ok=True)
     params = policy.get_params()
@@ -508,9 +573,10 @@ def main():
     print(f"State dim: {STATE_DIM}, Actions: {NUM_ACTIONS}, Hidden: {HIDDEN_DIM}")
     print(f"Episodes: {eps}, Tasks/ep: {tasks}")
 
-    policy, all_states = train(episodes=eps, tasks_per_ep=tasks)
+    policy, all_states, history = train(episodes=eps, tasks_per_ep=tasks)
     evaluate_baselines(policy)
     export_weights(policy, all_states, output_dir="dqn_weights")
+    plot_training_curves(history, output_dir="dqn_weights")
 
     print("\n" + "=" * 72)
     print("DONE! Now run the simulation with DQN:")
