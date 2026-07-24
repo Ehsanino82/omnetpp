@@ -427,6 +427,17 @@ void IoTDevice::sendTask(const TaskConfig &tc)
 {
     int action = chooseAction(tc);
 
+    // HARD GUARANTEE (teacher feedback, part 2, Q1): a quantum-optimizable
+    // (Qs >= theta) or GPU-oriented task must NEVER be executed on the
+    // battery-powered IoT device, in ANY policy — including DQN, which tends
+    // to favor local. chooseAction() already masks action 0 out for such
+    // tasks via localAllowed(), but this guard makes the guarantee absolute:
+    // if action 0 ever comes back for a non-local-feasible task, we forcibly
+    // offload it to the completion-time-best fog instead of running locally.
+    if (action == 0 && !localAllowed(tc)) {
+        action = pickBestFog(tc) + 1;
+    }
+
     if (action == 0) {
         processLocally(tc);
         return;

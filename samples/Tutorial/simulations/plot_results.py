@@ -100,13 +100,29 @@ def collect(results_dir):
         local = agg(sc, "tasksLocal", "sum")
         off = agg(sc, "tasksOffloaded", "sum")
         total = (local or 0) + (off or 0)
+        # Average energy per task = TOTAL energy / TOTAL tasks (robust: a per-iot
+        # mean is NaN if that device handled zero tasks, which would otherwise
+        # wipe out the whole policy's bar). energy:sum is the sum of per-task
+        # energies across all IoT devices, so dividing by the task count gives
+        # the true mean energy per completed task.
+        energy_sum = agg(sc, "energy:sum", "sum")
+        energy = (energy_sum / total) if (total and not np.isnan(energy_sum)) else np.nan
+        # Mean fog queue backlog: a fog that received zero tasks records
+        # queueBacklog:mean = NaN (no samples). Such a fog genuinely has an empty
+        # queue, so treat NaN as 0 before averaging — otherwise one idle fog
+        # makes the policy's whole bar disappear (this is why DQN was absent).
+        backlog_vals = [v for (mod, n), v in sc.items()
+                        if n == "queueBacklog:mean" and ".fog[" in mod]
+        backlog = float(np.nanmean(
+            [0.0 if (v is None or np.isnan(v)) else v for v in backlog_vals]
+        )) if backlog_vals else np.nan
         rows[pol] = {
             "hit": agg(sc, "hitRatio", "mean") * 100.0,
             "delay": agg(sc, "e2eDelay:mean", "mean"),
             "delay_max": agg(sc, "e2eDelay:max", "max"),
-            "energy": agg(sc, "energy:mean", "mean"),
+            "energy": energy,
             "util": agg(sc, "utilization", "mean", node="fog") * 100.0,
-            "backlog": agg(sc, "queueBacklog:mean", "mean", node="fog"),
+            "backlog": backlog,
             "local_pct": (local / total * 100.0) if total else 0.0,
             "offload_pct": (off / total * 100.0) if total else 0.0,
         }

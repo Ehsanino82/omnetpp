@@ -174,10 +174,28 @@ over time (vector), hit ratio**, plus local/offload share and queue backlog.
 |--------|-------|--------|
 | Deadline hit ratio | IoTDevice | `hitRatio`, `deadlineHit:mean` |
 | End-to-end delay | IoTDevice | `e2eDelay:mean/max` |
-| Energy per task | IoTDevice | `energy:mean/sum` (tx + fog exec) |
+| Energy per task | IoTDevice | `energy:mean/sum` (see definition below) |
 | Fog utilization (over time) | FogServer | `fogUtilization` (vector), `utilization` (scalar) |
 | Fog exec time / energy | FogServer | `execTime`, `energy` |
 | Queue backlog | FogServer | `queueBacklog:mean/max` |
+
+**Definition — "average energy per task":** this is the energy consumed to
+*execute the task's workload*, **not** the energy consumed by the scheduling
+algorithm itself (DQN inference is a few matrix multiplies and is negligible /
+untracked). For each completed task we record exactly one energy value:
+- **Local task:** `E = P_local · T_local` — the IoT device's own battery energy
+  (P_local = 2 W).
+- **Offloaded task:** `E = E_tx + E_fog = P_tx · D_bits / R_up + P_fog · T_exec`
+  — 5G uplink transmission energy **plus** the fog server's execution energy.
+
+The reported **average** = `Σ E_i / N_tasks` (i.e. `energy:sum / task_count`),
+computed in `plot_results.py`. Because it is dominated by the fog execution
+term for offloaded tasks, the per-task energy is essentially determined by the
+task size and the *chosen processor*, not by the total number of tasks — so for
+a fixed policy it stays roughly flat as N grows. The large gap between
+intelligent policies (~7–18 J) and the dumb baselines (~1800–4600 J) comes
+from the baselines sending non-quantum tasks to a QPU, where they hit the slow
+classical-host fallback under a 12–15 kW power rating.
 
 Plots in `results/plots/`: `summary_dashboard.png`, `hit_ratio.png`,
 `avg_delay.png`, `energy.png`, `fog_utilization.png`, `per_fog_utilization.png`,
